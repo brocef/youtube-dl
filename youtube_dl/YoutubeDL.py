@@ -512,11 +512,15 @@ class YoutubeDL(object):
                     tb_data = traceback.format_list(traceback.extract_stack())
                     tb = ''.join(tb_data)
             self.to_stderr(tb)
-        if not self.params.get('ignoreerrors', False):
+        
+        self.to_stderr("%s" % (not self.params.get('ignoreerrors', False) and (self.params.get('ignorecopyright', False) or 'This video is no longer available due to a copyright claim' not in message)))
+
+        if not self.params.get('ignoreerrors', False) and (self.params.get('ignorecopyright', False) or 'This video is no longer available due to a copyright claim' not in message):
             if sys.exc_info()[0] and hasattr(sys.exc_info()[1], 'exc_info') and sys.exc_info()[1].exc_info[0]:
                 exc_info = sys.exc_info()[1].exc_info
             else:
                 exc_info = sys.exc_info()
+            self.to_stderr("Raising the download exception.")
             raise DownloadError(message, exc_info)
         self._download_retcode = 1
 
@@ -1447,6 +1451,8 @@ class YoutubeDL(object):
             if self._num_downloads >= int(max_downloads):
                 raise MaxDownloadsReached()
 
+        self.to_screen(info_dict)
+    
         info_dict['fulltitle'] = info_dict['title']
         if len(info_dict['title']) > 200:
             info_dict['title'] = info_dict['title'][:197] + '...'
