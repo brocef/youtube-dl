@@ -440,7 +440,7 @@ class YoutubeDL(object):
         if self.params.get('logger'):
             self.params['logger'].debug(message)
         elif not check_quiet or not self.params.get('quiet', False):
-            message = self._bidi_workaround(message)
+            message = str(self._bidi_workaround(message))
             terminator = ['\n', ''][skip_eol]
             output = message + terminator
 
