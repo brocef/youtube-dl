@@ -20,6 +20,7 @@ from youtube_dl.utils import (
     args_to_str,
     encode_base_n,
     clean_html,
+    date_from_str,
     DateRange,
     detect_exe_version,
     determine_ext,
@@ -49,20 +50,23 @@ from youtube_dl.utils import (
     sanitize_path,
     prepend_extension,
     replace_extension,
+    remove_start,
+    remove_end,
     remove_quotes,
     shell_quote,
     smuggle_url,
     str_to_int,
     strip_jsonp,
-    struct_unpack,
     timeconvert,
     unescapeHTML,
     unified_strdate,
+    unified_timestamp,
     unsmuggle_url,
     uppercase_escape,
     lowercase_escape,
     url_basename,
     urlencode_postdata,
+    urshift,
     update_url_query,
     version_tuple,
     xpath_with_ns,
@@ -138,8 +142,8 @@ class TestUtil(unittest.TestCase):
         self.assertEqual('yes_no', sanitize_filename('yes? no', restricted=True))
         self.assertEqual('this_-_that', sanitize_filename('this: that', restricted=True))
 
-        tests = 'a\xe4b\u4e2d\u56fd\u7684c'
-        self.assertEqual(sanitize_filename(tests, restricted=True), 'a_b_c')
+        tests = 'aäb\u4e2d\u56fd\u7684c'
+        self.assertEqual(sanitize_filename(tests, restricted=True), 'aab_c')
         self.assertTrue(sanitize_filename('\xf6', restricted=True) != '')  # No empty filename
 
         forbidden = '"\0\\/&!: \'\t\n()[]{}$;`^,#'
@@ -153,6 +157,10 @@ class TestUtil(unittest.TestCase):
         # .. but make sure the file name is never empty
         self.assertTrue(sanitize_filename('-', restricted=True) != '')
         self.assertTrue(sanitize_filename(':', restricted=True) != '')
+
+        self.assertEqual(sanitize_filename(
+            'ÂÃÄÀÁÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕÖŐØŒÙÚÛÜŰÝÞßàáâãäåæçèéêëìíîïðñòóôõöőøœùúûüűýþÿ', restricted=True),
+            'AAAAAAAECEEEEIIIIDNOOOOOOOOEUUUUUYPssaaaaaaaeceeeeiiiionooooooooeuuuuuypy')
 
     def test_sanitize_ids(self):
         self.assertEqual(sanitize_filename('_n_cd26wFpw', is_id=True), '_n_cd26wFpw')
@@ -211,6 +219,16 @@ class TestUtil(unittest.TestCase):
         self.assertEqual(replace_extension('.abc', 'temp'), '.abc.temp')
         self.assertEqual(replace_extension('.abc.ext', 'temp'), '.abc.temp')
 
+    def test_remove_start(self):
+        self.assertEqual(remove_start(None, 'A - '), None)
+        self.assertEqual(remove_start('A - B', 'A - '), 'B')
+        self.assertEqual(remove_start('B - A', 'A - '), 'B - A')
+
+    def test_remove_end(self):
+        self.assertEqual(remove_end(None, ' - B'), None)
+        self.assertEqual(remove_end('A - B', ' - B'), 'A')
+        self.assertEqual(remove_end('B - A', ' - B'), 'B - A')
+
     def test_remove_quotes(self):
         self.assertEqual(remove_quotes(None), None)
         self.assertEqual(remove_quotes('"'), '"')
@@ -233,6 +251,15 @@ class TestUtil(unittest.TestCase):
         self.assertEqual(unescapeHTML('&#47;'), '/')
         self.assertEqual(unescapeHTML('&eacute;'), 'é')
         self.assertEqual(unescapeHTML('&#2013266066;'), '&#2013266066;')
+        # HTML5 entities
+        self.assertEqual(unescapeHTML('&period;&apos;'), '.\'')
+
+    def test_date_from_str(self):
+        self.assertEqual(date_from_str('yesterday'), date_from_str('now-1day'))
+        self.assertEqual(date_from_str('now+7day'), date_from_str('now+1week'))
+        self.assertEqual(date_from_str('now+14day'), date_from_str('now+2week'))
+        self.assertEqual(date_from_str('now+365day'), date_from_str('now+1year'))
+        self.assertEqual(date_from_str('now+30day'), date_from_str('now+1month'))
 
     def test_daterange(self):
         _20century = DateRange("19000101", "20000101")
@@ -258,7 +285,27 @@ class TestUtil(unittest.TestCase):
             '20150202')
         self.assertEqual(unified_strdate('Feb 14th 2016 5:45PM'), '20160214')
         self.assertEqual(unified_strdate('25-09-2014'), '20140925')
+        self.assertEqual(unified_strdate('27.02.2016 17:30'), '20160227')
         self.assertEqual(unified_strdate('UNKNOWN DATE FORMAT'), None)
+
+    def test_unified_timestamps(self):
+        self.assertEqual(unified_timestamp('December 21, 2010'), 1292889600)
+        self.assertEqual(unified_timestamp('8/7/2009'), 1247011200)
+        self.assertEqual(unified_timestamp('Dec 14, 2012'), 1355443200)
+        self.assertEqual(unified_timestamp('2012/10/11 01:56:38 +0000'), 1349920598)
+        self.assertEqual(unified_timestamp('1968 12 10'), -33436800)
+        self.assertEqual(unified_timestamp('1968-12-10'), -33436800)
+        self.assertEqual(unified_timestamp('28/01/2014 21:00:00 +0100'), 1390939200)
+        self.assertEqual(
+            unified_timestamp('11/26/2014 11:30:00 AM PST', day_first=False),
+            1417001400)
+        self.assertEqual(
+            unified_timestamp('2/2/2015 6:47:40 PM', day_first=False),
+            1422902860)
+        self.assertEqual(unified_timestamp('Feb 14th 2016 5:45PM'), 1455471900)
+        self.assertEqual(unified_timestamp('25-09-2014'), 1411603200)
+        self.assertEqual(unified_timestamp('27.02.2016 17:30'), 1456594200)
+        self.assertEqual(unified_timestamp('UNKNOWN DATE FORMAT'), None)
 
     def test_determine_ext(self):
         self.assertEqual(determine_ext('http://example.com/foo/bar.mp4/?download'), 'mp4')
@@ -405,6 +452,7 @@ class TestUtil(unittest.TestCase):
         self.assertEqual(parse_duration('01:02:03:04'), 93784)
         self.assertEqual(parse_duration('1 hour 3 minutes'), 3780)
         self.assertEqual(parse_duration('87 Min.'), 5220)
+        self.assertEqual(parse_duration('PT1H0.040S'), 3600.04)
 
     def test_fix_xml_ampersands(self):
         self.assertEqual(
@@ -443,9 +491,6 @@ class TestUtil(unittest.TestCase):
         testPL(5, 2, (1, 4), [1, 2, 3])
         testPL(5, 2, (2, 99), [2, 3, 4])
         testPL(5, 2, (20, 99), [])
-
-    def test_struct_unpack(self):
-        self.assertEqual(struct_unpack('!B', b'\x00'), (0,))
 
     def test_read_batch_urls(self):
         f = io.StringIO('''\xef\xbb\xbf foo
@@ -608,6 +653,18 @@ class TestUtil(unittest.TestCase):
         json_code = js_to_json(inp)
         self.assertEqual(json.loads(json_code), json.loads(inp))
 
+        inp = '''{
+            0:{src:'skipped', type: 'application/dash+xml'},
+            1:{src:'skipped', type: 'application/vnd.apple.mpegURL'},
+        }'''
+        self.assertEqual(js_to_json(inp), '''{
+            "0":{"src":"skipped", "type": "application/dash+xml"},
+            "1":{"src":"skipped", "type": "application/vnd.apple.mpegURL"}
+        }''')
+
+        inp = '''{"foo":101}'''
+        self.assertEqual(js_to_json(inp), '''{"foo":101}''')
+
     def test_js_to_json_edgecases(self):
         on = js_to_json("{abc_def:'1\\'\\\\2\\\\\\'3\"4'}")
         self.assertEqual(json.loads(on), {"abc_def": "1'\\2\\'3\"4"})
@@ -630,6 +687,27 @@ class TestUtil(unittest.TestCase):
 
         on = js_to_json('{"abc": "def",}')
         self.assertEqual(json.loads(on), {'abc': 'def'})
+
+        on = js_to_json('{ 0: /* " \n */ ",]" , }')
+        self.assertEqual(json.loads(on), {'0': ',]'})
+
+        on = js_to_json(r'["<p>x<\/p>"]')
+        self.assertEqual(json.loads(on), ['<p>x</p>'])
+
+        on = js_to_json(r'["\xaa"]')
+        self.assertEqual(json.loads(on), ['\u00aa'])
+
+        on = js_to_json("['a\\\nb']")
+        self.assertEqual(json.loads(on), ['ab'])
+
+        on = js_to_json('{0xff:0xff}')
+        self.assertEqual(json.loads(on), {'255': 255})
+
+        on = js_to_json('{077:077}')
+        self.assertEqual(json.loads(on), {'63': 63})
+
+        on = js_to_json('{42:42}')
+        self.assertEqual(json.loads(on), {'42': 42})
 
     def test_extract_attributes(self):
         self.assertEqual(extract_attributes('<e x="y">'), {'x': 'y'})
@@ -902,6 +980,10 @@ The first line
 
         self.assertRaises(ValueError, encode_base_n, 0, 70)
         self.assertRaises(ValueError, encode_base_n, 0, 60, custom_table)
+
+    def test_urshift(self):
+        self.assertEqual(urshift(3, 1), 1)
+        self.assertEqual(urshift(-3, 1), 2147483646)
 
 if __name__ == '__main__':
     unittest.main()
